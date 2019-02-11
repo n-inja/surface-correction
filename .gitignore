@@ -1,5 +1,7 @@
 main
 raws/
 masks/
+results/
+pics/
 *.png
 *.jpg

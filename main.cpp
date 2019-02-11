@@ -1,18 +1,22 @@
 #include <opencv2/opencv.hpp>
 #include "utils/keycode.hpp"
 #include "utils/lsm.cpp"
+#include "utils/dir.cpp"
 
 using namespace std;
 using namespace cv;
 
-const int chessW = 10, chessH = 15, chessRectLeng = 64;
+const int chessW = 11, chessH = 15, chessRectLeng = 64;
+int mouseX, mouseY;
 
 class Pic {
-  Mat raw, mask, corner, binary, view, result;
+  Mat raw, mask, corner, binary, filled, view, result;
   int blockSize, ksize, w, h;
-  double k, thd;
+  double k, thd, area;
   bool mode;
+  string filename;
   vector<Point2d> pending, lines;
+  vector<Point> poly;
   vector<double> surfX, surfY;
   vector<vector<Point2d>> points;
   void drawLine() {
@@ -22,19 +26,27 @@ class Pic {
     }
   }
   void drawCircle() {
-    view = binary.clone();
+    view = filled.clone();
     Scalar color(255., 255., 255.);
     for (auto &v : points) {
       for (auto &p : v) {
-        circle(view, p, 30, color);
+        circle(view, p, area, color);
       }
     }
+  }
+  void drawPo() {
+    filled = binary.clone();
+    if (poly.size() == 3) {
+      Scalar color(0., 0., 0.);
+      fillConvexPoly(filled, poly, color);
+    }
+    drawCircle();
   }
   void binarize() {
     Mat floatMat;
     threshold(corner, floatMat, thd, 1., THRESH_BINARY);
     floatMat.convertTo(binary, CV_8UC1, 255);
-    drawCircle();
+    drawPo();
   }
   void findCorner() {
     cornerHarris(mask, corner, blockSize, ksize, k);
@@ -65,14 +77,13 @@ class Pic {
     imshow("result", result);
   }
 public:
-  Pic (string filename, int _blockSize = 10, int _ksize = 5, double _k = 0.04, double _thd = 0.03) : blockSize(_blockSize), ksize(_ksize), k(_k), thd(_thd) {
+  Pic (string f, int _blockSize = 10, int _ksize = 5, double _k = 0.04, double _thd = 0.03, double _area = 30.) : filename(f), blockSize(_blockSize), ksize(_ksize), k(_k), thd(_thd), area(_area) {
     mode = false;
     string rawfile = "raws/" + filename, maskfile = "masks/" + filename;
     raw = imread(rawfile);
     mask = imread(maskfile, 0);
     w = raw.cols;
     h = raw.rows;
-    cout << w << " " << h << endl;
     thd = min(1., max(thd, 0.));
     findCorner();
   }
@@ -128,10 +139,10 @@ public:
       int x = ox + i, y = oy + j;
       if (x < 1 || x > w || y < 1 || y > h) continue;
       if (i * i + j * j > r * r) continue;
-      if (binary.at<uchar>(y, x) == 0) continue;
-      if (binary.at<uchar>(y - 1, x) == 0) continue;
-      if (binary.at<uchar>(y, x - 1) == 0) continue;
-      if (binary.at<uchar>(y - 1, x - 1) == 0) continue;
+      if (filled.at<uchar>(y, x) == 0) continue;
+      if (filled.at<uchar>(y - 1, x) == 0) continue;
+      if (filled.at<uchar>(y, x - 1) == 0) continue;
+      if (filled.at<uchar>(y - 1, x - 1) == 0) continue;
       sumx += x;
       sumy += y;
       cnt++;
@@ -159,7 +170,7 @@ public:
       return;
     }
     vector<Point2d> v;
-    Point2d st = findPoint(pending[0]), nd = findPoint(pending[1]);
+    Point2d st = findPoint(pending[0], area), nd = findPoint(pending[1], area);
     if (st == pending[0] || nd == pending[1] || st == nd) {
       pending.clear();
       return;
@@ -167,15 +178,19 @@ public:
     Point2d d = nd - st;
 	d /= sqrt(d.dot(d));
 	v.push_back(st);
-	Point2d next = st + d * 60;
+	Point2d next = st + d * area * 2;
 	while((next - nd).dot(next - nd) > 35 * 35) {
 	  Point2d find = findPoint(next);
 	  if (find.x == next.x && find.y == next.y) {
 	    next += d * 10;
 	    continue;
 	  }
-	  v.push_back(find);
-	  next = st + (d.dot(find - st) + 60) * d;
+	  if ((find - v[v.size() - 1]).dot(find - v[v.size() - 1]) < 1) {
+        next = st + (d.dot(find - st) + area * 3) * d;
+        continue;
+	  }
+      v.push_back(find);
+      next = st + (d.dot(find - st) + area * 2) * d;
 	}
 	v.push_back(nd);
     points.push_back(v);
@@ -189,21 +204,16 @@ public:
     vector<double> bx, by;
     for (int i = 0; i < points.size(); i++) {
       for (int j = 0; j < points[i].size(); j++) {
-        double x = i, y = j;
+        double x = i + 1, y = j;
         A.push_back(vector<double>({1., x, y, x * x, x * y, y * y, x * x * x, x * x * y, x * y * y, y * y * y}));
         bx.push_back(points[i][j].x);
         by.push_back(points[i][j].y);
       }
     }
-    cout << "trans" << endl;
     mat::trans(A, At);
-    cout << "mult" << endl;
     mat::mult(At, A, AtA);
-    cout << "gauss" << endl;
     mat::gaussJordan(AtA, AtAinv);
-    cout << "mult" << endl;
     mat::mult(AtAinv, At, AtAinvAt);
-    cout << "mult" << endl;
     mat::mult(AtAinvAt, bx, surfX);
     mat::mult(AtAinvAt, by, surfY);
 
@@ -214,14 +224,41 @@ public:
     surfX.clear();
     surfY.clear();
     lines.clear();
+    poly.clear();
     findCorner();
   }
   void refitting() {
     for (auto &v : points) {
       for (auto &p : v) {
-        p = findPoint(p);
+        p = findPoint(p, area);
       }
     }
+    drawCircle();
+    estimateSurface();
+  }
+  void load(string f) {
+    filename = f;
+    string rawfile = "raws/" + filename, maskfile = "masks/" + filename;
+    raw = imread(rawfile);
+    mask = imread(maskfile, 0);
+    w = raw.cols;
+    h = raw.rows;
+    findCorner();
+  }
+  void save() {
+    string path = "results/" + filename;
+    imwrite(path, result);
+  }
+  void addArea (double v) {
+    area = max(area + v, 1.);
+    drawCircle();
+  }
+  void addPoly() {
+    if (poly.size() == 3) {
+      poly.erase(poly.begin());
+    }
+    poly.push_back(Point2d(mouseX, mouseY));
+    drawPo();
   }
 };
 
@@ -230,13 +267,22 @@ function<void(int x, int y)> f;
 void cb(int e, int x, int y, int flags, void *params) {
   if (e == EVENT_LBUTTONDOWN) {
     f(x, y);
+  } else if (e == EVENT_MOUSEMOVE) {
+    mouseX = x;
+    mouseY = y;
   }
 }
 
 int main () {
+  vector<string> files = searchDir("raws/");
+  sort(files.begin(), files.end());
+  cout << "file: " << files.size() << endl;
+  int fileIndex;
+  cin >> fileIndex;
+  fileIndex = min((int)files.size() - 1, max(0, fileIndex));
   namedWindow("window", 1);
   namedWindow("result", 2);
-  Pic p("0.jpg");
+  Pic p(files[fileIndex]);
   f = [&p](int x, int y) {
     p.addPoint(x, y);
   };
@@ -264,16 +310,16 @@ int main () {
         p.addKSize(-2);
         break;
       case KEYCODE_R:
-        p.addK(0.001);
+        p.addArea(1.);
         break;
       case KEYCODE_F:
-        p.addK(-0.001);
+        p.addArea(-1.);
         break;
       case KEYCODE_SPACE:
         p.changeMode();
         break;
       case KEYCODE_ENTER:
-        p.printParam();
+        // p.printParam();
         p.calcPoints();
         break;
       case KEYCODE_T:
@@ -285,8 +331,24 @@ int main () {
       case KEYCODE_G:
         p.refitting();
         break;
+      case KEYCODE_C:
+        fileIndex = max(0, fileIndex - 1);
+        p.load(files[fileIndex]);
+        cout << files[fileIndex] << endl;
+        break;
+      case KEYCODE_V:
+        fileIndex = min((int)files.size() - 1, fileIndex + 1);
+        p.load(files[fileIndex]);
+        cout << files[fileIndex] << endl;
+        break;
+      case KEYCODE_B:
+        p.save();
+        break;
       case KEYCODE_ESC:
         loop = false;
+        break;
+      case KEYCODE_X:
+        p.addPoly();
         break;
       default:
         break;
