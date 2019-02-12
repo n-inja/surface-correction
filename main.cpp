@@ -186,7 +186,7 @@ public:
 	    continue;
 	  }
 	  if ((find - v[v.size() - 1]).dot(find - v[v.size() - 1]) < 1) {
-        next = st + (d.dot(find - st) + area * 3) * d;
+        next = st + (d.dot(find - st) + area * 4) * d;
         continue;
 	  }
       v.push_back(find);
@@ -275,6 +275,12 @@ void cb(int e, int x, int y, int flags, void *params) {
 
 int main () {
   vector<string> files = searchDir("raws/");
+  vector<string> rs = searchDir("results/");
+  set<string> s;
+  for (auto &t: rs) s.insert(t);
+  for (int i = 0; i < files.size(); i++) {
+    if (s.find(files[i]) == s.end()) cout << files[i] << endl;
+  }
   sort(files.begin(), files.end());
   cout << "file: " << files.size() << endl;
   int fileIndex;
