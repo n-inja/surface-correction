@@ -71,7 +71,7 @@ class Pic {
       for (int c = 0; c < result.channels(); c++) {
         result.data[i * result.step + j * result.elemSize() + c] =
           dx * (dy * raw.data[ly * raw.step + lx * raw.elemSize() + c] + (1 - dy) * raw.data[ry * raw.step + lx * raw.elemSize() + c]) +
-          (1 - dx) * (dy * dy * raw.data[ly * raw.step + rx * raw.elemSize() + c] + (1 - dy) * raw.data[ry * raw.step + rx * raw.elemSize() + c]);
+          (1 - dx) * (dy * raw.data[ly * raw.step + rx * raw.elemSize() + c] + (1 - dy) * raw.data[ry * raw.step + rx * raw.elemSize() + c]);
       }
     }
     imshow("result", result);
@@ -179,7 +179,7 @@ public:
 	d /= sqrt(d.dot(d));
 	v.push_back(st);
 	Point2d next = st + d * area * 2;
-	while((next - nd).dot(next - nd) > 35 * 35) {
+	while((next - st).dot(next - st) < (nd - st).dot(nd - st)) {
 	  Point2d find = findPoint(next);
 	  if (find.x == next.x && find.y == next.y) {
 	    next += d * 10;
@@ -192,7 +192,9 @@ public:
       v.push_back(find);
       next = st + (d.dot(find - st) + area * 2) * d;
 	}
-	v.push_back(nd);
+	if ((v[v.size() - 1] - nd).dot(v[v.size() - 1] - nd) > area) {
+      v.push_back(nd);
+    }
     points.push_back(v);
 
     pending.clear();
@@ -286,6 +288,7 @@ int main () {
   int fileIndex;
   cin >> fileIndex;
   fileIndex = min((int)files.size() - 1, max(0, fileIndex));
+  cout << files[fileIndex] << endl;
   namedWindow("window", 1);
   namedWindow("result", 2);
   Pic p(files[fileIndex]);
@@ -349,6 +352,7 @@ int main () {
         break;
       case KEYCODE_B:
         p.save();
+        cout << "save " + files[fileIndex] << endl;
         break;
       case KEYCODE_ESC:
         loop = false;
