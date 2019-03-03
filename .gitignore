@@ -1,8 +1,10 @@
 main
 viewer
+pers
 raws/
 masks/
 results/
 pics/
+books/
 *.png
 *.jpg
